@@ -1,8 +1,7 @@
 #include <ArduinoJson.h>
 #include <LGPRS.h>
 #include <LGPRSClient.h>
-#include <LBattery.h>
-#include <LGPS.h>
+#include <LEEPROM.h>
 #include <MQTTClient.h>
 
 #define JSON_BUF_SIZE 1024
@@ -17,6 +16,7 @@ typedef enum {
 static STATUS g_status = STATUS_INVALID;
 
 static bool g_need_report = true;
+static uint32_t g_reset_cnt = 0;
 
 static const char *g_gprs_apn = "3gnet";
 static const char *g_gprs_username = "";
@@ -173,7 +173,6 @@ static void init_gprs() {
     delay(1000);
   }
   Serial.println("gprs ok");
-  LGPS.powerOn();
   delay(100);
   g_status = STATUS_INIT_YUNBA;
 }
@@ -206,7 +205,7 @@ static void init_yunba() {
 }
 
 static void check_need_report() {
-  if (millis() - g_last_report_ms > 10000) {
+  if (millis() - g_last_report_ms > 30000) {
     g_last_report_ms = millis();
     g_need_report = true;
   }
@@ -220,9 +219,7 @@ static void handle_report() {
   StaticJsonBuffer<JSON_BUF_SIZE> json_buf;
   JsonObject& root = json_buf.createObject();
 
-  root["battery"] = 0;
-
-  JsonArray& json_array = root.createNestedArray("cell");
+  root["reset"] = g_reset_cnt;
 
   String json;
   root.printTo(json);
@@ -237,7 +234,6 @@ static void check_network() {
   if (millis() - g_check_net_ms > 30000) {
     if (!g_mqtt_client.connected()) {
       Serial.println("mqtt connection failed, try reconnect");
-      LGPS.powerOff();
       g_status = STATUS_INIT_YUNBA;
     } else {
       Serial.println("mqtt connection is ok");
@@ -255,11 +251,29 @@ void extMessageReceived(EXTED_CMD cmd, int status, String payload, unsigned int 
   //  Serial.println("ext msg: " + String(cmd) + ", " + payload);
 }
 
+void init_reset_cnt() {
+  uint32_t cnt = 0;
+  *((uint8_t *)&cnt + 0) = EEPROM.read(0);
+  *((uint8_t *)&cnt + 1) = EEPROM.read(1);
+  *((uint8_t *)&cnt + 2) = EEPROM.read(2);
+  *((uint8_t *)&cnt + 3) = EEPROM.read(3);
+
+  g_reset_cnt = cnt;
+
+  cnt += 1;
+
+  EEPROM.write(0, *((uint8_t *)&cnt + 0));
+  EEPROM.write(1, *((uint8_t *)&cnt + 1));
+  EEPROM.write(2, *((uint8_t *)&cnt + 2));
+  EEPROM.write(3, *((uint8_t *)&cnt + 3));
+}
+
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
-  delay(5000);
   Serial.println("setup...");
+
+  init_reset_cnt();
   g_status = STATUS_INIT_GPRS;
 }
 
