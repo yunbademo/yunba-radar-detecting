@@ -5,6 +5,7 @@
 #include <MQTTClient.h>
 
 #define JSON_BUF_SIZE 1024
+#define LED_PIN 13
 
 typedef enum {
   STATUS_INVALID,
@@ -36,6 +37,11 @@ static MQTTClient g_mqtt_client;
 static unsigned long g_last_report_ms = 0;
 
 static unsigned long g_check_net_ms = 0;
+
+static unsigned long g_last_led_ms = 0;
+static long g_led_interval = 1000;
+static int g_led_state = LOW;
+static int g_led_fast = 0;
 
 static bool get_ip_port(const char *url, char *ip, uint16_t *port) {
   char *p = strstr(url, "tcp://");
@@ -227,6 +233,8 @@ static void handle_report() {
   Serial.println("publish: " + json);
   g_mqtt_client.publish(g_report_topic, json);
 
+  g_led_interval = 50;
+  g_led_fast = 0;
   g_need_report = false;
 }
 
@@ -248,10 +256,10 @@ void messageReceived(String topic, String payload, char *bytes, unsigned int len
 }
 
 void extMessageReceived(EXTED_CMD cmd, int status, String payload, unsigned int length) {
-  //  Serial.println("ext msg: " + String(cmd) + ", " + payload);
+//  Serial.println("ext msg: " + String(cmd) + ", " + payload);
 }
 
-void init_reset_cnt() {
+static void init_reset_cnt() {
   uint32_t cnt = 0;
   *((uint8_t *)&cnt + 0) = EEPROM.read(0);
   *((uint8_t *)&cnt + 1) = EEPROM.read(1);
@@ -268,10 +276,38 @@ void init_reset_cnt() {
   EEPROM.write(3, *((uint8_t *)&cnt + 3));
 }
 
+static void handle_led() {
+  unsigned long now = millis();
+
+  if (now - g_last_led_ms >= g_led_interval) {
+    // save the last time you blinked the LED
+    g_last_led_ms = now;
+
+    // if the LED is off turn it on and vice-versa:
+    if (g_led_state == LOW) {
+      g_led_state = HIGH;
+    } else {
+      g_led_state = LOW;
+    }
+
+    if (g_led_interval = 50) {
+      g_led_fast += 1;
+      if (g_led_fast >= 10) {
+        g_led_interval = 1000;
+      }
+    }
+    digitalWrite(LED_PIN, g_led_state);
+  }
+}
+
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
   Serial.println("setup...");
+
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, g_led_state);
+  g_last_led_ms = millis();
 
   init_reset_cnt();
   g_status = STATUS_INIT_GPRS;
@@ -292,6 +328,7 @@ void loop() {
       check_need_report();
       handle_report();
       check_network();
+      handle_led();
       break;
     default:
       Serial.println("unknown status: " + g_status);
